@@ -9,7 +9,7 @@ from pathlib import Path
 # 加载环境变量
 from dotenv import load_dotenv
 load_dotenv()
-
+WSGI_APPLICATION = 'myblog.wsgi.application'
 # 基础路径
 BASE_DIR = Path(__file__).resolve().parent.parent
 
