@@ -1,0 +1,415 @@
+{% extends 'blog/base.html' %}
+
+{% block title %}与 {{ other_user.username }} 的私聊 - 我的博客{% endblock %}
+
+{% block extra_css %}
+<style>
+    .chat-container {
+        height: 70vh;
+        display: flex;
+        flex-direction: column;
+    }
+    .chat-header {
+        border-bottom: 1px solid #dee2e6;
+        padding: 1rem;
+        background-color: #f8f9fa;
+    }
+    .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem;
+        background-color: #f8f9fa;
+    }
+    .message {
+        margin-bottom: 1rem;
+        max-width: 70%;
+    }
+    .message-self {
+        margin-left: auto;
+    }
+    .message-other {
+        margin-right: auto;
+    }
+    .message-content {
+        padding: 0.75rem 1rem;
+        border-radius: 1rem;
+        position: relative;
+        word-wrap: break-word;
+    }
+    .message-self .message-content {
+        background-color: #0d6efd;
+        color: white;
+        border-bottom-right-radius: 0.25rem;
+    }
+    .message-other .message-content {
+        background-color: white;
+        color: #333;
+        border: 1px solid #dee2e6;
+        border-bottom-left-radius: 0.25rem;
+    }
+    .message-header {
+        font-size: 0.8rem;
+        color: #6c757d;
+        margin-bottom: 0.25rem;
+    }
+    .message-time {
+        font-size: 0.7rem;
+        opacity: 0.8;
+    }
+    .message-self .message-time {
+        text-align: right;
+        color: rgba(255, 255, 255, 0.8);
+    }
+    .chat-input {
+        border-top: 1px solid #dee2e6;
+        padding: 1rem;
+        background-color: white;
+    }
+    .typing-indicator {
+        height: 20px;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+    .typing-indicator.show {
+        opacity: 1;
+    }
+    .typing-indicator span {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: #6c757d;
+        margin: 0 2px;
+        animation: typing 1.4s infinite ease-in-out;
+    }
+    .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+    .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+    
+    @keyframes typing {
+        0%, 80%, 100% { transform: scale(0); }
+        40% { transform: scale(1); }
+    }
+    
+    .empty-chat {
+        text-align: center;
+        padding: 3rem;
+        color: #6c757d;
+    }
+    .empty-chat i {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        opacity: 0.5;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card chat-container">
+    <!-- 聊天头部 -->
+    <div class="chat-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center">
+                <a href="{% url 'private_chat_list' %}" class="btn btn-sm btn-outline-secondary me-2">
+                    <i class="fas fa-arrow-left"></i>
+                </a>
+                <div class="user-avatar me-3" style="width: 40px; height: 40px;">
+                    <i class="fas fa-user"></i>
+                </div>
+                <div>
+                    <h5 class="mb-0">{{ other_user.username }}</h5>
+                    {% if other_user.first_name or other_user.last_name %}
+                        <small class="text-muted">
+                            {{ other_user.first_name }} {{ other_user.last_name }}
+                        </small>
+                    {% endif %}
+                </div>
+            </div>
+            <div>
+                <a href="{% url 'private_chat_list' %}" class="btn btn-sm btn-outline-primary">
+                    <i class="fas fa-list"></i> 会话列表
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 消息区域 -->
+    <div class="chat-messages" id="chatMessages">
+        {% if messages %}
+            {% for message in messages %}
+                <div class="message {% if message.sender == request.user %}message-self{% else %}message-other{% endif %}">
+                    <div class="message-header">
+                        {% if message.sender != request.user %}
+                            <strong>{{ message.sender.username }}</strong>
+                        {% else %}
+                            <strong>你</strong>
+                        {% endif %}
+                    </div>
+                    <div class="message-content">
+                        {{ message.content|linebreaks }}
+                    </div>
+                    <div class="message-time">
+                        {{ message.created_at|date:"H:i" }}
+                        {% if message.is_read and message.sender == request.user %}
+                            <i class="fas fa-check text-success ms-1"></i>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <div class="empty-chat">
+                <h5 class="mt-3">还没有消息</h5>
+                <p class="text-muted">发送第一条消息开始对话</p>
+            </div>
+        {% endif %}
+        
+        <!-- 输入中提示 -->
+        <div class="typing-indicator" id="typingIndicator">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+    </div>
+    
+    <!-- 输入区域 -->
+    <div class="chat-input">
+        <form method="post" id="messageForm">
+            {% csrf_token %}
+            <div class="input-group">
+                {{ form.content }}
+                <button type="submit" class="btn btn-primary" id="sendButton">
+                    <i class="fas fa-paper-plane"></i> 发送
+                </button>
+            </div>
+            <small class="text-muted mt-1 d-block">
+                按 Enter 发送，Shift+Enter 换行
+            </small>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    class PrivateChatManager {
+        constructor(otherUserId) {
+            this.otherUserId = otherUserId;
+            this.messageContainer = document.getElementById('chatMessages');
+            this.messageForm = document.getElementById('messageForm');
+            this.messageInput = document.querySelector('#id_content');
+            this.sendButton = document.getElementById('sendButton');
+            this.typingIndicator = document.getElementById('typingIndicator');
+            this.pollingInterval = null;
+            this.typingTimeout = null;
+            this.lastMessageId = null;
+            
+            this.init();
+        }
+        
+        init() {
+            // 获取最后一条消息的ID
+            const lastMessage = this.messageContainer.querySelector('.message:last-child');
+            if (lastMessage) {
+                // 在实际应用中，可以从消息元素中提取ID
+                this.lastMessageId = null; // 这里简化处理
+            }
+            
+            this.setupEventListeners();
+            this.startPolling();
+            this.scrollToBottom();
+        }
+        
+        setupEventListeners() {
+            // 表单提交
+            this.messageForm.addEventListener('submit', (e) => this.handleSubmit(e));
+            
+            // 输入框事件
+            this.messageInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.sendMessage();
+                }
+            });
+            
+            // 输入框输入事件（显示"正在输入"）
+            this.messageInput.addEventListener('input', () => {
+                this.showTypingIndicator();
+            });
+        }
+        
+        async handleSubmit(e) {
+            e.preventDefault();
+            await this.sendMessage();
+        }
+        
+        async sendMessage() {
+            const content = this.messageInput.value.trim();
+            if (!content) return;
+            
+            // 禁用发送按钮
+            const originalText = this.sendButton.innerHTML;
+            this.sendButton.disabled = true;
+            this.sendButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 发送中';
+            
+            try {
+                const response = await fetch(`/api/private-chat/send/${this.otherUserId}/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCsrfToken(),
+                    },
+                    body: JSON.stringify({ content: content }),
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    this.messageInput.value = '';
+                    this.loadMessages();
+                } else {
+                    BlogUtils.showNotification(data.error || '发送失败', 'danger');
+                }
+            } catch (error) {
+                console.error('发送消息失败:', error);
+                BlogUtils.showNotification('发送失败，请重试', 'danger');
+            } finally {
+                // 恢复发送按钮
+                this.sendButton.disabled = false;
+                this.sendButton.innerHTML = originalText;
+            }
+        }
+        
+        async loadMessages() {
+            try {
+                let url = `/api/private-chat/messages/${this.otherUserId}/`;
+                if (this.lastMessageId) {
+                    url += `?last_id=${this.lastMessageId}`;
+                }
+                
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (data.messages && data.messages.length > 0) {
+                    this.renderMessages(data.messages);
+                    this.lastMessageId = data.messages[data.messages.length - 1].id;
+                    
+                    // 更新未读消息计数
+                    this.updateUnreadCount(data.total_unread);
+                }
+            } catch (error) {
+                console.error('加载消息失败:', error);
+            }
+        }
+        
+        renderMessages(messages) {
+            if (!messages.length) return;
+            
+            messages.forEach(msg => {
+                // 检查消息是否已存在
+                const existingMsg = this.messageContainer.querySelector(`[data-message-id="${msg.id}"]`);
+                if (existingMsg) return;
+                
+                const messageEl = this.createMessageElement(msg);
+                this.messageContainer.appendChild(messageEl);
+            });
+            
+            this.scrollToBottom();
+        }
+        
+        createMessageElement(message) {
+            const div = document.createElement('div');
+            div.className = `message ${message.is_own ? 'message-self' : 'message-other'}`;
+            div.setAttribute('data-message-id', message.id);
+            
+            const time = new Date(message.created_at).toLocaleTimeString('zh-CN', {
+                hour: '2-digit',
+                minute: '2-digit',
+            });
+            
+            div.innerHTML = `
+                <div class="message-header">
+                    <strong>${message.is_own ? '你' : message.sender_username}</strong>
+                </div>
+                <div class="message-content">
+                    ${this.escapeHtml(message.content).replace(/\n/g, '<br>')}
+                </div>
+                <div class="message-time">
+                    ${time}
+                    ${message.is_own ? '<i class="fas fa-check text-success ms-1"></i>' : ''}
+                </div>
+            `;
+            
+            return div;
+        }
+        
+        showTypingIndicator() {
+            // 在实际应用中，这里应该通过WebSocket向对方发送"正在输入"状态
+            // 这里只是本地显示效果
+            this.typingIndicator.classList.add('show');
+            
+            if (this.typingTimeout) {
+                clearTimeout(this.typingTimeout);
+            }
+            
+            this.typingTimeout = setTimeout(() => {
+                this.typingIndicator.classList.remove('show');
+            }, 2000);
+        }
+        
+        startPolling() {
+            this.pollingInterval = setInterval(() => {
+                this.loadMessages();
+            }, 3000); // 每3秒轮询一次
+        }
+        
+        stopPolling() {
+            if (this.pollingInterval) {
+                clearInterval(this.pollingInterval);
+            }
+        }
+        
+        scrollToBottom() {
+            this.messageContainer.scrollTop = this.messageContainer.scrollHeight;
+        }
+        
+        escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        updateUnreadCount(count) {
+            // 更新导航栏的未读消息计数
+            const unreadBadge = document.querySelector('.private-chat-unread');
+            if (unreadBadge) {
+                if (count > 0) {
+                    unreadBadge.textContent = count;
+                    unreadBadge.style.display = 'inline';
+                } else {
+                    unreadBadge.style.display = 'none';
+                }
+            }
+        }
+    }
+    
+    // 初始化聊天管理器
+    document.addEventListener('DOMContentLoaded', function() {
+        window.privateChatManager = new PrivateChatManager({{ other_user.id }});
+        
+        // 页面离开时停止轮询
+        window.addEventListener('beforeunload', function() {
+            if (window.privateChatManager) {
+                window.privateChatManager.stopPolling();
+            }
+        });
+    });
+    
+    // 获取CSRF token
+    function getCsrfToken() {
+        const cookieValue = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('csrftoken='))
+            ?.split('=')[1];
+        return cookieValue || '';
+    }
+</script>
+{% endblock %}
