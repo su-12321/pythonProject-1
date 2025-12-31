@@ -52,6 +52,22 @@ MIDDLEWARE = [
     'blog.middleware.VisitStatisticsMiddleware',
 ]
 
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [os.path.join(BASE_DIR, 'templates')],  # 如果有自定义模板目录
+        'APP_DIRS': True,  # 这很重要！必须为 True
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+
 # 数据库配置
 # 优先使用Render提供的DATABASE_URL
 if os.getenv('DATABASE_URL'):
