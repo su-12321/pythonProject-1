@@ -1,0 +1,10 @@
+[build]
+builder = "nixpacks"
+buildCommand = "pip install -r requirements.txt"
+
+[deploy]
+startCommand = "python manage.py migrate && gunicorn myblog.wsgi:application --bind 0.0.0.0:\$PORT"
+
+[[services]]
+name = "web"
+port = 8000
