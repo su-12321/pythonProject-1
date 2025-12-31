@@ -36,7 +36,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'blog'
+    'myblog.blog'
 ]
 
 # 中间件（确保WhiteNoise正确配置）
